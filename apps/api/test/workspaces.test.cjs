@@ -138,6 +138,11 @@ test(
           (record) => record.id === id && record.patientRef === patientId,
         ),
       );
+      assert.equal((await request("/admin/records/" + id, issuer)).status, 403);
+      const metadata = await data("/admin/records/" + id, auditor);
+      assert.ok(metadata.permissions.includes("Org2MSP:" + providerId));
+      assert.equal(metadata.mode, mode);
+      assert.ok(!("filename" in metadata) && !("digest" in metadata));
       const verified = await request(path + "/verify", provider, upload());
       assert.equal(verified.status, 200);
       assert.equal((await verified.json()).result, "MATCH");

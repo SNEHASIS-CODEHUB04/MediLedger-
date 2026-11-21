@@ -6,6 +6,7 @@
     "typecheck": "tsc --noEmit",
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "test": "npm run build && node --test test/*.test.cjs",
+    "provision-admin": "node --env-file-if-exists=../../.env dist/provision.js",
     "seed": "node --env-file-if-exists=../../.env dist/seed.js"
   },
   "dependencies": {
@@ -22,12 +23,14 @@
     "class-validator": "^0.14.2",
     "express-rate-limit": "^8.2.0",
     "helmet": "^8.1.0",
+    "nodemailer": "^10.6.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@types/express": "^5",
     "@types/multer": "^2",
-    "@types/node": "^22"
+    "@types/node": "^22",
+    "@types/nodemailer": "^8.0.2"
   }
 }

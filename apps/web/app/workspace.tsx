@@ -40,6 +40,9 @@ import {
   RevokeAccessDialog,
   VerificationResult,
 } from "./record-components";
+import { ManualAuth } from "./manual-auth";
+import { AdminConsole } from "./admin-console";
+import { Sessions } from "./sessions";
 import { RoleGuide } from "./role-guide";
 import type {
   SessionProfile,
@@ -48,16 +51,14 @@ import type {
   Role,
 } from "@mediledger/shared";
 
-const demoAccountEntry = process.env.NEXT_PUBLIC_DEMO_ENTRY === "true";
 const fixturesOnly = process.env.NEXT_PUBLIC_DEMO_FIXTURES_ONLY === "true";
 const profiles = [
   {
     role: "AUDITOR",
-    email: "auditor@mediledger.example",
     name: "Auditor",
     action: "Review permitted audit activity",
     nav: "Audit history",
-    title: "Audit overview",
+    title: "Superadmin overview",
     description:
       "Review pseudonymous registration, consent, and verification events.",
     empty: "",
@@ -65,7 +66,6 @@ const profiles = [
   },
   {
     role: "PATIENT",
-    email: "patient@mediledger.example",
     name: "Patient",
     action: "View reports and manage who can access them",
     nav: "My reports",
@@ -79,7 +79,6 @@ const profiles = [
   },
   {
     role: "PROVIDER",
-    email: "provider@mediledger.example",
     name: "Receiving provider",
     action: "Open shared reports and verify a PDF",
     nav: "Shared reports",
@@ -91,7 +90,6 @@ const profiles = [
   },
   {
     role: "ISSUER",
-    email: "issuer@mediledger.example",
     name: "Issuing organization",
     action: "Register and review patient reports",
     nav: "Issued reports",
@@ -103,7 +101,6 @@ const profiles = [
   },
 ] satisfies {
   role: Role;
-  email: string;
   name: string;
   action: string;
   nav: string;
@@ -124,19 +121,9 @@ function Brand() {
   );
 }
 
-function RoleIcon({ kind }: { kind: Role }) {
-  return (
-    <span className={"role-icon " + kind.toLowerCase()} aria-hidden="true">
-      <i />
-    </span>
-  );
-}
-
 export default function Dashboard() {
   const [health, setHealth] = useState<Health>();
   const [status, setStatus] = useState("Checking system status");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [profile, setProfile] = useState<SessionProfile>();
   const [records, setRecords] = useState<RecordSummary[]>([]);
@@ -147,7 +134,6 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [showCredentials, setShowCredentials] = useState(false);
   const pathname = usePathname();
   const [progress, setProgress] = useState<number>();
   const [revision, setRevision] = useState(0);
@@ -269,25 +255,13 @@ export default function Dashboard() {
     setVerification(undefined);
   }
 
-  function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    signIn(email, password);
-  }
-
-  function signIn(address: string, secret?: string) {
+  function signIn(address: string, secret: string) {
     void act(async () => {
-      const { token: session } =
-        secret === undefined
-          ? await route(
-              "/auth/demo",
-              "",
-              json({ account: address.split("@")[0] }),
-            )
-          : await route(
-              "/auth/login",
-              "",
-              json({ email: address, password: secret }),
-            );
+      const { token: session } = await route(
+        "/auth/login",
+        "",
+        json({ email: address, password: secret }),
+      );
       const [user, entries] = await Promise.all([
         route("/users/me", session),
         route("/users/directory", session),
@@ -296,8 +270,6 @@ export default function Dashboard() {
       setDirectory(entries);
       setToken(session);
       setProfile(user);
-      setPassword("");
-      setShowCredentials(false);
       const id = new URLSearchParams(window.location.search).get("id");
       if (requested === "record" && id && user.role !== "AUDITOR") {
         await open(id, session);
@@ -426,7 +398,7 @@ export default function Dashboard() {
   const title =
     view === "overview"
       ? profile?.role === "AUDITOR"
-        ? "Audit overview"
+        ? "Superadmin overview"
         : profile?.role === "ISSUER"
           ? "Organization overview"
           : profile?.role === "PROVIDER"
@@ -507,88 +479,25 @@ export default function Dashboard() {
         <section className="welcome-login" aria-labelledby="sign-in-title">
           <div className="welcome-status">{modeLabel}</div>
           <div className="login-content">
-            <h2 id="sign-in-title">Open your workspace</h2>
-            <p className="muted">
-              {mode === "PUBLIC_DEMO"
-                ? "Choose a role to explore with synthetic reports."
-                : "Sign in with the account issued to you."}
-            </p>
             {feedback}
-            <fieldset disabled={busy} aria-busy={busy}>
-              {mode === "PUBLIC_DEMO" && (
-                <div className="role-list" aria-label="Demo accounts">
-                  {profiles.map((item) => (
-                    <button
-                      type="button"
-                      className="role-option"
-                      key={item.role}
-                      aria-pressed={email === item.email}
-                      onClick={() => {
-                        setEmail(item.email);
-                        setPassword("");
-                        if (demoAccountEntry) signIn(item.email);
-                        else setShowCredentials(true);
-                      }}
-                    >
-                      <RoleIcon kind={item.role} />
-                      <span>
-                        <strong>{item.name}</strong>
-                        <small>{item.action}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {(mode !== "PUBLIC_DEMO" ||
-                showCredentials ||
-                requested === "login") && (
-                <form className="stack credentials" onSubmit={login}>
-                  <label>
-                    Email address
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      autoComplete="username"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Password
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      required
-                    />
-                  </label>
-                  <button className="primary">Sign in</button>
-                </form>
-              )}
-              {mode === "PUBLIC_DEMO" &&
-                !showCredentials &&
-                requested !== "login" && (
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => {
-                      setShowCredentials(true);
-                      setView("login");
-                    }}
-                  >
-                    Sign in with email
-                  </button>
-                )}
-            </fieldset>
+            <ManualAuth
+              key={requested}
+              section={requested}
+              go={setView}
+              busy={busy}
+              signIn={signIn}
+            />
             {unavailable && (
               <p className="system-warning">
                 {health ? "A service is currently unavailable." : status}
               </p>
             )}
           </div>
-          <p className="welcome-footer">Use synthetic documents only.</p>
+          <p className="welcome-footer">
+            {mode === "PUBLIC_DEMO"
+              ? "Simulated environment. Use synthetic documents only."
+              : "Authorized access only."}
+          </p>
         </section>
       </main>
     );
@@ -648,7 +557,7 @@ export default function Dashboard() {
         />
       )}
       {feedback}
-      {view === "overview" && (
+      {view === "overview" && profile.role !== "AUDITOR" && (
         <Overview
           profile={profile}
           token={token}
@@ -661,6 +570,15 @@ export default function Dashboard() {
             })
           }
         />
+      )}
+      {view === "overview" && profile.role === "AUDITOR" && (
+        <>
+          <AdminConsole token={token} onExpired={expire} />
+          <SystemStatus
+            health={health}
+            refresh={() => setHealthRevision((value) => value + 1)}
+          />
+        </>
       )}
       {(view === "audit" ||
         (view === "overview" &&
@@ -688,6 +606,9 @@ export default function Dashboard() {
             <dd>{profile.department ?? "Unassigned"}</dd>
           </dl>
         </section>
+      )}
+      {view === "settings" && (
+        <Sessions token={token} onExpired={expire} onEnded={clearSession} />
       )}
       <fieldset disabled={busy} aria-busy={busy}>
         {view === "register" && canRegister ? (
@@ -821,12 +742,12 @@ export default function Dashboard() {
                     <strong>
                       {activeSearch.trim()
                         ? "No matching reports"
-                        : "No reports available"}
+                        : "No records found"}
                     </strong>
                     <p>
                       {activeSearch.trim()
                         ? "Try a different name or organization."
-                        : selected.empty}
+                        : "Data will appear here after the first successful operation."}
                     </p>
                   </div>
                 )}
@@ -961,7 +882,11 @@ export default function Dashboard() {
         />
       )}
       <footer className="workspace-footer">
-        <span>Use synthetic documents only.</span>
+        <span>
+          {mode === "PUBLIC_DEMO"
+            ? "Simulated environment. Use synthetic documents only."
+            : "Authorized access only."}
+        </span>
         <span>
           {health
             ? unavailable

@@ -2,6 +2,11 @@ import type { Role } from "@mediledger/shared";
 
 export const sectionNames = [
   "login",
+  "signup",
+  "forgot-password",
+  "reset-password",
+  "confirm-email",
+  "resend-verification",
   "overview",
   "reports",
   "register",

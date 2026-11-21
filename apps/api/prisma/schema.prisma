@@ -15,6 +15,7 @@ model Organization {
   id String @id
   name String
   mspId String @unique
+  status String @default("PENDING")
   users User[]
   createdAt DateTime @default(now())
 }
@@ -24,10 +25,13 @@ model User {
   passwordHash String
   role Role
   active Boolean @default(true)
+  verifiedAt DateTime?
+  mustSetPassword Boolean @default(false)
   department String?
   organizationId String
   organization Organization @relation(fields: [organizationId], references: [id])
   sessions Session[]
+  accountTokens AccountToken[]
   issued DocumentMetadata[] @relation("issuer")
   owned DocumentMetadata[] @relation("owner")
   @@index([organizationId])
@@ -81,4 +85,29 @@ model FabricTransaction {
   commitStatus String
   createdAt DateTime @default(now())
   @@index([recordId])
+}
+
+model AccountToken {
+  hash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose String
+  expiresAt DateTime
+  @@index([userId, purpose])
+}
+
+model SecurityEvent {
+  id Int @id @default(autoincrement())
+  action String
+  actor String?
+  subject String?
+  detail String?
+  at DateTime
+  previousHash String
+  hash String @unique
+}
+
+model SystemSettings {
+  id Int @id
+  registrationOpen Boolean @default(true)
 }

@@ -15,6 +15,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:synthetic-ci-password@localhost:5432/postgres
       APP_MODE: PUBLIC_DEMO
+      ENABLE_TEST_FIXTURES: "true"
       FIXTURE_PASSWORD: synthetic-ci-fixture
       PORT: 3001
       MEDILEDGER_TEST_API: http://127.0.0.1:3001

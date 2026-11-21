@@ -24,7 +24,6 @@ export type Page<T, Cursor = number> = { items: T[]; next: Cursor | null };
 
 type ApiRoutes = {
   "/auth/login": { token: string };
-  "/auth/demo": { token: string };
   "/users/me": SessionProfile;
   "/users/directory": DirectoryEntry[];
   "/workspace/overview": WorkspaceMetrics;

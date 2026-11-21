@@ -1,12 +1,13 @@
 import {
   Injectable,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { PrismaClient, type DocumentMetadata } from "@prisma/client";
 import { compare } from "bcryptjs";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Actor, Mode } from "@mediledger/shared";
 import { pdfDigest, PrivateFiles } from "./files";
 import {
@@ -19,8 +20,9 @@ import {
 import { FabricLedgerAdapter } from "./fabric";
 import { Workspaces } from "./workspaces";
 
-const hashToken = (token: string) =>
-  createHash("sha256").update(token).digest("hex");
+import { Accounts, hashToken } from "./accounts";
+import { Administration } from "./admin";
+import { appendEvent, lockIdentity, logEvent } from "./security-log";
 const dummyHash =
   "$2b$12$zIWUBoYsqlu9YbgocQ7lrOJl/aRK/D5vh8bd.4nfY8nB7v3sYBp0.";
 
@@ -32,6 +34,8 @@ export class MediLedger {
     this.mode === "PUBLIC_DEMO"
       ? new SimulatedLedgerAdapter(this.db)
       : new FabricLedgerAdapter(this.db);
+  readonly accounts = new Accounts(this.db);
+  readonly admin = new Administration(this.db, this.mode, this.accounts);
   readonly workspaces = new Workspaces(this.db, this.mode);
   readonly files = new PrivateFiles(process.env.FILE_STORAGE_ROOT ?? "");
 
@@ -46,19 +50,46 @@ export class MediLedger {
     const valid =
       Buffer.byteLength(password) <= 72 &&
       (await compare(password, user?.passwordHash ?? dummyHash));
-    if (!valid || !user?.active)
-      throw new UnauthorizedException("Invalid credentials");
+    if (!valid || !user) {
+      await logEvent(this.db, "AUTHENTICATION_FAILED", null, user?.id);
+      throw new UnauthorizedException(
+        "Invalid credentials or account unavailable.",
+      );
+    }
     const token = randomBytes(32).toString("base64url");
-    await this.db.$transaction([
-      this.db.session.deleteMany({ where: { expiresAt: { lte: new Date() } } }),
-      this.db.session.create({
+    const authorized = await this.db.$transaction(async (tx) => {
+      await lockIdentity(tx);
+      const current = await tx.user.findFirst({
+        where: {
+          id: user.id,
+          active: true,
+          verifiedAt: { not: null },
+          mustSetPassword: false,
+          passwordHash: user.passwordHash,
+          organization: { status: "ACTIVE" },
+        },
+      });
+      if (!current) {
+        await appendEvent(tx, "AUTHENTICATION_FAILED", null, user.id);
+        return false;
+      }
+      await tx.session.deleteMany({
+        where: { expiresAt: { lte: new Date() } },
+      });
+      await tx.session.create({
         data: {
           hash: hashToken(token),
           userId: user.id,
           expiresAt: new Date(Date.now() + 1800_000),
         },
-      }),
-    ]);
+      });
+      await appendEvent(tx, "AUTHENTICATION_SUCCEEDED", user.id);
+      return true;
+    });
+    if (!authorized)
+      throw new UnauthorizedException(
+        "Invalid credentials or account unavailable. Verify your email if needed.",
+      );
     return { token };
   }
 
@@ -70,7 +101,13 @@ export class MediLedger {
       where: { hash },
       include: { user: { include: { organization: true } } },
     });
-    if (!session?.user.active || session.expiresAt <= new Date())
+    if (
+      !session?.user.active ||
+      !session.user.verifiedAt ||
+      session.user.mustSetPassword ||
+      session.user.organization.status !== "ACTIVE" ||
+      session.expiresAt <= new Date()
+    )
       throw new UnauthorizedException();
     const { user } = session;
     const actor: Actor = {
@@ -88,8 +125,37 @@ export class MediLedger {
   }
 
   async logout(authorization: string | undefined) {
-    const { hash } = await this.session(authorization);
-    await this.db.session.deleteMany({ where: { hash } });
+    const { hash, actor } = await this.session(authorization);
+    await this.db.$transaction(async (tx) => {
+      await tx.session.deleteMany({ where: { hash } });
+      await appendEvent(tx, "SESSION_ENDED", actor.id);
+    });
+  }
+
+  async sessions(authorization: string | undefined) {
+    const { actor, hash } = await this.session(authorization);
+    const rows = await this.db.session.findMany({
+      where: { userId: actor.id, expiresAt: { gt: new Date() } },
+      orderBy: { expiresAt: "desc" },
+      take: 100,
+      select: { hash: true, expiresAt: true },
+    });
+    return rows.map((row) => ({
+      id: row.hash,
+      expiresAt: row.expiresAt,
+      current: row.hash === hash,
+    }));
+  }
+
+  async revokeSession(authorization: string | undefined, id: string) {
+    const { actor } = await this.session(authorization);
+    await this.db.$transaction(async (tx) => {
+      const result = await tx.session.deleteMany({
+        where: { userId: actor.id, hash: id },
+      });
+      if (!result.count) throw missing();
+      await appendEvent(tx, "SESSION_REVOKED", actor.id);
+    });
   }
 
   async directory(actor: Actor) {
@@ -103,6 +169,7 @@ export class MediLedger {
     return this.db.user.findMany({
       where: {
         role,
+        verifiedAt: { not: null },
         ...(role === "PATIENT" ? { active: true } : {}),
         ...(role === "PATIENT"
           ? { organization: { mspId: actor.organization } }
@@ -124,6 +191,7 @@ export class MediLedger {
       where: {
         id: ownerId,
         role: "PATIENT",
+        verifiedAt: { not: null },
         active: true,
         organization: { mspId: actor.organization },
       },
@@ -165,6 +233,36 @@ export class MediLedger {
       createdAt: row.createdAt.toISOString(),
       issuer,
       patientRef: row.ownerId,
+    };
+  }
+
+  async administrativeRecord(actor: Actor, id: string) {
+    if (actor.role !== "AUDITOR") throw new ForbiddenException();
+    const row = await this.db.documentMetadata.findFirst({
+      where: { id, ready: true },
+      select: {
+        id: true,
+        createdAt: true,
+        issuer: {
+          select: { id: true, organization: { select: { mspId: true } } },
+        },
+      },
+    });
+    if (!row) throw missing();
+    const signer = {
+      id: row.issuer.id,
+      role: "ISSUER" as const,
+      organization: row.issuer.organization.mspId,
+    };
+    const state = await this.ledger.read(signer, id);
+    await logEvent(this.db, "RECORD_METADATA_INSPECTED", actor.id, id);
+    return {
+      id,
+      issuer: signer.organization,
+      createdAt: row.createdAt,
+      mode: this.mode,
+      permissions: state.grants,
+      history: state.history,
     };
   }
 
@@ -295,7 +393,13 @@ export class MediLedger {
       where: {
         id: provider,
         role: "PROVIDER",
-        ...(grant ? { active: true } : {}),
+        ...(grant
+          ? {
+              active: true,
+              verifiedAt: { not: null },
+              organization: { status: "ACTIVE" },
+            }
+          : {}),
       },
       include: { organization: true },
     });

@@ -20,6 +20,11 @@ import type { NavItem, Section } from "./navigation";
 
 const icons = {
   login: UserRound,
+  signup: UserRound,
+  "forgot-password": UserRound,
+  "reset-password": UserRound,
+  "confirm-email": UserRound,
+  "resend-verification": UserRound,
   overview: Home,
   reports: FileText,
   register: Upload,

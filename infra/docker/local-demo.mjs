@@ -3,26 +3,34 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 
 const root = new URL("../../", import.meta.url);
-const config = new URL(".env.local-stack", root);
+const config = new URL(".env.manual-stack", root);
 const origin = "http://127.0.0.1:8080";
 const argumentsForCompose = [
   "compose",
   "--project-name",
-  "mediledger-local",
+  "mediledger-manual",
   "--env-file",
-  ".env.local-stack",
+  ".env.manual-stack",
   "-f",
   "infra/docker/public-demo.yaml",
   "-f",
   "infra/docker/local-demo.yaml",
 ];
-const command = process.argv[2] ?? "start";
+const command = process.argv[2];
 if (command !== "start" && command !== "stop") {
-  console.error("Usage: node infra/docker/local-demo.mjs [start|stop]");
+  console.error(
+    "Usage: node infra/docker/local-demo.mjs start PUBLIC_DEMO | stop",
+  );
   process.exit(1);
 }
 
 if (command === "start") {
+  if (process.argv[3] !== "PUBLIC_DEMO") {
+    console.error(
+      "Select PUBLIC_DEMO explicitly. Use the live Fabric API setup for LIVE_FABRIC.",
+    );
+    process.exit(1);
+  }
   const databasePassword = randomBytes(24).toString("hex");
   try {
     writeFileSync(
@@ -32,7 +40,7 @@ if (command === "start") {
         "HOSTED_DATABASE_URL=postgresql://mediledger:" +
           databasePassword +
           "@postgres:5432/mediledger",
-        "FIXTURE_PASSWORD=mediledger-local-demo",
+        "APP_MODE=PUBLIC_DEMO",
         "WEB_ORIGIN=" + origin,
         "",
       ].join("\n"),

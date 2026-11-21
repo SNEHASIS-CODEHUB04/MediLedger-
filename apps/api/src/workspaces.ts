@@ -1,5 +1,6 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { appendEvent, lockIdentity } from "./security-log";
 import type { Actor, Mode, WorkspaceEvent } from "@mediledger/shared";
 
 export class Workspaces {
@@ -39,6 +40,17 @@ export class Workspaces {
   async setStaffActive(actor: Actor, id: string, active: boolean) {
     this.require(actor, "ISSUER");
     await this.db.$transaction(async (tx) => {
+      await lockIdentity(tx);
+      const issuer = await tx.user.findFirst({
+        where: {
+          id: actor.id,
+          role: "ISSUER",
+          active: true,
+          verifiedAt: { not: null },
+          organization: { mspId: actor.organization, status: "ACTIVE" },
+        },
+      });
+      if (!issuer) throw new ForbiddenException();
       const result = await tx.user.updateMany({
         where: {
           id,
@@ -49,6 +61,13 @@ export class Workspaces {
       });
       if (!result.count) throw new NotFoundException("Provider unavailable");
       if (!active) await tx.session.deleteMany({ where: { userId: id } });
+      await appendEvent(
+        tx,
+        "ORGANIZATION_STAFF_STATUS_CHANGED",
+        actor.id,
+        id,
+        active ? "ACTIVE" : "INACTIVE",
+      );
     });
   }
 

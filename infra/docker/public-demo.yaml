@@ -18,31 +18,26 @@ services:
       dockerfile: infra/docker/Dockerfile
       target: api
     environment:
-      APP_MODE: PUBLIC_DEMO
+      APP_MODE: ${APP_MODE:?Explicitly select the application mode}
       DATABASE_URL: ${HOSTED_DATABASE_URL:?Set HOSTED_DATABASE_URL}
-      FIXTURE_PASSWORD: ${FIXTURE_PASSWORD:?Set FIXTURE_PASSWORD}
+      SMTP_URL: ${SMTP_URL:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
       PORT: "3001"
-      DEMO_FIXTURES_ONLY: "true"
-      DEMO_ACCOUNT_ENTRY: "true"
+      DEMO_FIXTURES_ONLY: "false"
     volumes:
       - pdfs:/data
     depends_on:
       postgres:
         condition: service_healthy
     command:
-      [
-        "sh",
-        "-ec",
-        "npm run db:migrate && npm run seed -w @mediledger/api && npm run start -w @mediledger/api",
-      ]
+      ["sh", "-ec", "npm run db:migrate && npm run start -w @mediledger/api"]
   web:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: web
-      args:
-        NEXT_PUBLIC_DEMO_ENTRY: "true"
+
     ports:
       - "127.0.0.1:8080:80"
     depends_on:

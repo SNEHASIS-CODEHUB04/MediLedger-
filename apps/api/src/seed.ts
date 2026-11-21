@@ -9,6 +9,10 @@ const provider = "10000000-0000-4000-8000-000000000003";
 const secondPatient = "10000000-0000-4000-8000-000000000004";
 
 async function seed() {
+  if (process.env.ENABLE_TEST_FIXTURES !== "true")
+    throw new Error(
+      "Fixture seeding is limited to explicitly enabled test databases.",
+    );
   const password = process.env.FIXTURE_PASSWORD;
   if (
     !password ||
@@ -26,8 +30,8 @@ async function seed() {
     ]) {
       await db.organization.upsert({
         where: { id },
-        update: {},
-        create: { id, name, mspId },
+        update: { status: "ACTIVE" },
+        create: { id, name, mspId, status: "ACTIVE" },
       });
     }
     for (const [id, email, role, organizationId, department] of [
@@ -74,8 +78,16 @@ async function seed() {
     ] as const) {
       await db.user.upsert({
         where: { id },
-        update: { department },
-        create: { id, email, role, organizationId, department, passwordHash },
+        update: { department, active: true, verifiedAt: new Date() },
+        create: {
+          id,
+          email,
+          role,
+          organizationId,
+          department,
+          passwordHash,
+          verifiedAt: new Date(),
+        },
       });
     }
     if (
