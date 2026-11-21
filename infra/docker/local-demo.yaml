@@ -1,0 +1,8 @@
+services:
+  api:
+    environment:
+      DEMO_FIXTURES_ONLY: "false"
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_DEMO_FIXTURES_ONLY: "false"

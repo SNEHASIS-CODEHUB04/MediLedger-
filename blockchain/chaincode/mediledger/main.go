@@ -1,0 +1,17 @@
+package main
+
+import (
+	"log"
+
+	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+)
+
+func main() {
+	chaincode, err := contractapi.NewChaincode(&Contract{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := chaincode.Start(); err != nil {
+		log.Fatal(err)
+	}
+}

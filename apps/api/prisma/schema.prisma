@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum Role {
+  ISSUER
+  PATIENT
+  PROVIDER
+  AUDITOR
+}
+model Organization {
+  id String @id
+  name String
+  mspId String @unique
+  users User[]
+  createdAt DateTime @default(now())
+}
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  passwordHash String
+  role Role
+  active Boolean @default(true)
+  department String?
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id])
+  sessions Session[]
+  issued DocumentMetadata[] @relation("issuer")
+  owned DocumentMetadata[] @relation("owner")
+  @@index([organizationId])
+}
+model Session {
+  hash String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model DocumentMetadata {
+  id String @id
+  filename String
+  sizeBytes Int
+  issuerId String
+  issuer User @relation("issuer", fields: [issuerId], references: [id])
+  ownerId String
+  owner User @relation("owner", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+  ready Boolean @default(false)
+  simulation Simulation?
+  transactions FabricTransaction[]
+  verifications Verification[]
+  @@index([ownerId, createdAt])
+  @@index([issuerId, createdAt])
+}
+model Simulation {
+  id String @id
+  record DocumentMetadata @relation(fields: [id], references: [id])
+  state Json
+}
+model Verification {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordId String
+  record DocumentMetadata @relation(fields: [recordId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actorId String
+  organization String
+  mode String
+  result String
+  createdAt DateTime @default(now())
+  @@index([mode, createdAt])
+  @@index([recordId, actorId])
+}
+model FabricTransaction {
+  txId String @id
+  recordId String
+  record DocumentMetadata @relation(fields: [recordId], references: [id])
+  functionName String
+  submittedBy String
+  commitStatus String
+  createdAt DateTime @default(now())
+  @@index([recordId])
+}

@@ -1,0 +1,53 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-ci-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:synthetic-ci-password@localhost:5432/postgres
+      APP_MODE: PUBLIC_DEMO
+      FIXTURE_PASSWORD: synthetic-ci-fixture
+      PORT: 3001
+      MEDILEDGER_TEST_API: http://127.0.0.1:3001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: |
+          export FILE_STORAGE_ROOT="$RUNNER_TEMP/mediledger-pdfs"
+          npm run seed -w @mediledger/api
+          node apps/api/dist/main.js &
+          api=$!
+          trap 'kill "$api"' EXIT
+          curl --retry 15 --retry-connrefused --retry-delay 1 -fsS "$MEDILEDGER_TEST_API/health"
+          npm test
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blockchain/chaincode/mediledger
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: blockchain/chaincode/mediledger/go.sum
+      - run: go test ./...

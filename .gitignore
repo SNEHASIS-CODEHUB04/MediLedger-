@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+next-env.d.ts
+dist
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+private-data/
+fabric-identities/
+blockchain/chaincode/mediledger/vendor/
